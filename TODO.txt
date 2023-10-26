@@ -1,0 +1,7 @@
+DQN-Learning:
+- Add test model
+- Add save model and load model
+- Add parallelization
+- Add communication through environment
+- Add optimizations and bug fixes
+- Add Main function
