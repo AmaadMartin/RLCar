@@ -5,3 +5,4 @@ DQN-Learning:
 - Add communication through environment
 - Add optimizations and bug fixes
 - Add Main function
+- Add global hyperparameters
