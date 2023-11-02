@@ -200,7 +200,7 @@ class Environment:
         self.socket = socket.socket(socket.AF_INET, socket.SOCK_STREAM)
         self.socket.connect((self.ip, self.port))
 
-    def sendAction(self, action):
+    def step(self, action):
         self.socket.sendall(action.encode())
         state = self.socket.recv(STATE_BYTES)
         # Do some modification to state to turn into torch tensor and send back
