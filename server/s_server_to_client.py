@@ -2,8 +2,22 @@ import socket
 import readchar
 from time import sleep
 
-canSend = True
+IP = '172.26.177.26'
+PORT = 48622
 
+class ServerSender:
+    def __init__(self, ip, port):
+        self.ip = ip
+        self.port = port
+        self.socket = socket.socket(socket.AF_INET, socket.SOCK_STREAM)
+        self.socket.connect((self.ip, self.port))
+
+    def sendAction(self, action):
+        self.socket.sendall(action.encode())
+        self.socket.shutdown(socket.SHUT_WR)
+        self.socket.close()
+
+        
 def send_action(action):
     global canSend
     canSend = False
