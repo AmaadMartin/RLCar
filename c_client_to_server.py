@@ -9,7 +9,7 @@ from tqdm import tqdm
 from agent import Agent
 
 IP = '0.0.0.0'
-PORT = 48623
+PORT = 48624
 RESOLUTION = (224, 224)
 
 class ClientSender:
@@ -24,7 +24,7 @@ class ClientSender:
         self.client_socket.bind((self.ip, self.port))
         self.client_socket.listen(1)
         self.connection, _ = self.client_socket.accept()
-        # print('connected')
+        print('connected')
 
         self.camera = picamera.PiCamera()
         self.camera.resolution = RESOLUTION
@@ -49,6 +49,7 @@ class ClientSender:
 
             gs_data = self.px.get_grayscale_data()
             reward = 0 if any(r < self.lightThreshold for r in gs_data) else 1
+            print(reward)
 
             self.sendImageReward(image, reward)
             rawCapture.truncate(0)

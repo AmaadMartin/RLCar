@@ -1,13 +1,36 @@
 # #!/usr/bin/env python3
 
-print('Please run under desktop environment (eg: vnc) to display the image window')
-
 from robot_hat.utils import reset_mcu
 from picarx import Picarx
-from vilib import Vilaib
 from time import sleep, time, strftime, localtime
 import readchar
 import socket
+
+IP = '0.0.0.0'  
+PORT = 48621
+
+class ClientReciever:
+    def __init__(self, ip, port):
+        self.ip = ip
+        self.port = port
+        self.client_socket = socket.socket(socket.AF_INET, socket.SOCK_STREAM)
+        self.client_socket.setsockopt(socket.SOL_SOCKET, socket.SO_REUSEADDR, 1)
+        server_address = (self.ip, self.port)  # Replace 'server_ip_address' with the actual IP address of the server
+        self.client_socket.bind(server_address)
+        self.client_socket.listen(1)
+        self.connection, _ = self.client_socket.accept()
+        print(f"Accepted connection from the server: {server_address}")
+    
+    def recieveAction(self):
+        try:
+            action = self.connection.recv(1024).decode()
+            print(f"Received data from the server: {action}")
+        except:
+            action = 'stop'
+        return action
+    
+    def close(self):
+        self.client_socket.close()
 
 reset_mcu()
 sleep(0.2)
@@ -55,7 +78,7 @@ def recieveAction():
     # Receive data from the server
     action = connection.recv(1024).decode()
 
-    print(f"Received data from the server: {action}")
+    if len(action) > 0: print(f"Received data from the server: {action}")
 
     # print(f"Connecting to the server: {server_address}")
     # # Connect to the server 
@@ -74,14 +97,11 @@ def recieveAction():
 
 def main():
     status = 'stop'
-
-    Vilib.camera_start(vflip=False,hflip=False)
-    Vilib.display(local=True,web=True)
-    sleep(2)  # wait for startup
+    reciever = ClientReciever(IP, PORT)
 
     while True:
         # recieve action from server
-        action = recieveAction()
+        action = reciever.recieveAction()
         move(action)
         sleep(0.1)
 

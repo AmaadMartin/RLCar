@@ -6,13 +6,13 @@ import numpy as np
 from math import sqrt
 
 IP = '172.26.177.26'
-PORT = 48623
+PORT = 48624
 RESOLTUION = (224, 224)
 
 class ServerReciever:
-    def __init__(self, ip, port):
-        self.ip = ip
-        self.port = port
+    def __init__(self):
+        self.ip = IP
+        self.port = PORT
         self.socket = socket.socket(socket.AF_INET, socket.SOCK_STREAM)
         self.socket.connect((self.ip, self.port))
     
@@ -57,7 +57,7 @@ class ServerReciever:
 
 
 def main():
-    connection = ServerReciever(IP, PORT)
+    connection = ServerReciever()
     while True:
         image, reward = connection.recieveImageReward()
         print(reward)

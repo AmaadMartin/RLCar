@@ -8,6 +8,9 @@ import torchvision.models as models
 import torch.nn.functional as F
 import socket
 import torch.nn as nn
+from s_client_to_server import ServerReciever
+from s_server_to_client import ServerSender
+from tqdm import tqdm
 
 action_map = {0: "left", 1: "right", 2: "forward", 3: "backward", 4: "stop"}
 
@@ -60,10 +63,11 @@ class Replay_Memory:
 
 class CNN(torch.nn.Module):
     def __init__(self, action_size):
-        super(QNetwork, self).__init__()
+        super(CNN, self).__init__()
         # Load the pretrained MobileNetV2 model
-        model = torch.hub.load(
-            "pytorch/vision:v0.10.0", "mobilenet_v2", pretrained=True
+        self.mobilenetv2 = torch.hub.load(
+            # "pytorch/vision:v0.10.0", "mobilenet_v2", pretrained=True
+            "pytorch/vision:v0.10.0", "alexnet", pretrained=True
         )
 
         # Freeze all layers of MobileNetV2
@@ -79,13 +83,25 @@ class CNN(torch.nn.Module):
         )
 
     def forward(self, state):
-        self.mobilenetv2(state)
+        return self.mobilenetv2(state)[0]
+        
 
 
 class QNetwork:
-    def __init__(self, lr, load_model=False, model_path=None):
+    def __init__(self, lr=0.001, load_model=False, model_path=None):
         if not load_model:
-            self.model = CNN(10, ACTION_SPACE)
+            
+            self.model = CNN(ACTION_SPACE)
+            if not torch.backends.mps.is_available():
+                if not torch.backends.mps.is_built():
+                    print("MPS not available because the current PyTorch install was not "
+                        "built with MPS enabled.")
+                else:
+                    print("MPS not available because the current MacOS version is not 12.3+ "
+                        "and/or you do not have an MPS-enabled device on this machine.")
+            else:
+                mps_device = torch.device("mps")   
+                self.model.to(mps_device)
             self.model.optimizer = torch.optim.Adam(self.model.parameters(), lr=lr)
         else:
             self.load_model(model_path)
@@ -181,6 +197,24 @@ class DQN_Agent:
                 if episode_len >= MAX_EPISODE_LEN or terminal_state:
                     break
 
+    def getTrajectory(self):
+        done = False
+        trajectory = []
+        state = self.env.reset()
+        state = torch.tensor(state).reshape(1, 3, 224, 224)
+        
+        # state = torch.randn(1, 3, 224, 224)
+        while not done:
+            q_values = self.q_w.model(state)
+            action = self.greedy_policy(q_values)
+            next_state, reward, done = self.env.step(action.item())
+            next_state = torch.tensor(next_state).reshape(1, 3, 224, 224)
+            # next_state = torch.randn(1, 3, 224, 224)
+            trajectory.append((state, action, reward, next_state))
+            state = next_state
+        print(len(trajectory))
+        return trajectory
+
     def burn_in_memory(self):
         state = self.env.reset()
         for _ in range(self.replay_memory.burn_in):
@@ -192,18 +226,36 @@ class DQN_Agent:
             else:
                 state = next_state
 
+    def testNetwork(self):
+        for _ in tqdm(range(1000)):
+            state = torch.randn(1, 3, 224, 224)
+            q_values = self.q_w.model(state)
+            action = self.greedy_policy(q_values)
+    
+    # def sendActions(self):
 
-class Environment:
-    def __init__(self, ip, port):
-        self.ip = ip
-        self.port = port
-        self.socket = socket.socket(socket.AF_INET, socket.SOCK_STREAM)
-        self.socket.connect((self.ip, self.port))
+
+
+class EnvironmentCommunicator:
+    def __init__(self,):
+        print("connecting reciever")
+        self.reciever = ServerReciever()
+        print("connected reciever")
+        print("connecting sender")
+        self.sender = ServerSender()
+        print("connected sender")
 
     def step(self, action):
-        self.socket.sendall(action.encode())
-        state = self.socket.recv(STATE_BYTES)
-        # Do some modification to state to turn into torch tensor and send back
+        """
+        returns (state, reward, done)
+        """
+        self.sender.sendAction(action_map[action])
+        print(action_map[action])
+        state, reward = self.reciever.recieveImageReward()
+        return state, reward, reward == 0
+    
+    def reset(self):
+        state, _ = self.reciever.recieveImageReward()
         return state
 
     def start(self):
@@ -218,14 +270,17 @@ class Environment:
 
 
 def main():
+        
     # Initialize environment
-    env = Environment(IP, PORT)
+    # env = EnvironmentCommunicator()
 
     # Initialize agent
-    agent = DQN_Agent(E, EPSILON, LEARNING_RATE, GAMMA, BATCH_SIZE, env)
+    agent = DQN_Agent(E, EPSILON, LEARNING_RATE, GAMMA, BATCH_SIZE, None)
+    agent.testNetwork()
+    # agent.getTrajectory()
 
     # Train agent
-    agent.train()
+    # agent.train()
 
 
 if __name__ == "__main__":

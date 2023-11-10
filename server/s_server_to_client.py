@@ -3,37 +3,36 @@ import readchar
 from time import sleep
 
 IP = '172.26.177.26'
-PORT = 48622
+PORT = 48621
+
+canSend = True
 
 class ServerSender:
-    def __init__(self, ip, port):
-        self.ip = ip
-        self.port = port
+    def __init__(self):
+        self.ip = IP
+        self.port = PORT
         self.socket = socket.socket(socket.AF_INET, socket.SOCK_STREAM)
         self.socket.connect((self.ip, self.port))
+        print(f"Connected to the server: {self.ip}:{self.port}")
 
     def sendAction(self, action):
-        self.socket.sendall(action.encode())
+        try:
+            self.socket.sendall(action.encode())
+        except:
+            print("Error sending action")
+
+    def close(self):
         self.socket.shutdown(socket.SHUT_WR)
         self.socket.close()
-
         
-def send_action(action):
+def send_action(action, sender):
     global canSend
     canSend = False
-    # Create a socket object
-    server_socket = socket.socket(socket.AF_INET, socket.SOCK_STREAM)
-
-    # Bind the socket to a specific address and port
-    server_address = ('172.26.177.26', 48621)  # 0.0.0.0 means listen on all available interfaces
-    server_socket.connect(server_address)
-    server_socket.sendall(action.encode())
-    server_socket.shutdown(socket.SHUT_WR)
-    server_socket.close()
-    print("Sent action: ", action)
+    sender.sendAction(action)
     canSend = True
 
 def main():
+    sender = ServerSender()
     global canSend
     while True:
         if not canSend:
@@ -44,13 +43,13 @@ def main():
         if key in ('wsad'):
             if key == 'w':  
                 # launch thread to send forward action
-                send_action('forward')
+                send_action('forward', sender)
             elif key == 'a':
-                send_action('turn left')
+                send_action('turn left', sender)
             elif key == 'd':
-                send_action('turn right')
+                send_action('turn right', sender)
             elif key == 's':
-                send_action('stop')
+                send_action('stop', sender)
         sleep(0.1)
         
 
