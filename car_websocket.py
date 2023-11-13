@@ -37,6 +37,7 @@ class ImageCapture:
             image = frame.array
             image = image.tobytes()
             self.last_image = image
+            print(self.last_image[:10])
             rawCapture.truncate(0)
 
 
