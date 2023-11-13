@@ -8,8 +8,6 @@ import torchvision.models as models
 import torch.nn.functional as F
 import socket
 import torch.nn as nn
-from s_client_to_server import ServerReciever
-from s_server_to_client import ServerSender
 from tqdm import tqdm
 
 action_map = {0: "left", 1: "right", 2: "forward", 3: "backward", 4: "stop"}
@@ -17,7 +15,7 @@ action_map = {0: "left", 1: "right", 2: "forward", 3: "backward", 4: "stop"}
 # CONSTANTS
 IP = "172.26.177.26"
 PORT = 48622
-
+THRESHOLD = 50
 # HYPERPARAMETERS
 ACTION_SPACE = len(action_map)
 UPDATE_FREQ = 50
@@ -65,42 +63,45 @@ class CNN(torch.nn.Module):
     def __init__(self, action_size):
         super(CNN, self).__init__()
         # Load the pretrained MobileNetV2 model
-        self.mobilenetv2 = torch.hub.load(
-            # "pytorch/vision:v0.10.0", "mobilenet_v2", pretrained=True
-            "pytorch/vision:v0.10.0", "alexnet", pretrained=True
+        self.alexNetv2 = torch.hub.load(
+            "pytorch/vision:v0.10.0",
+            "alexnet",
+            pretrained=True,
         )
 
-        # Freeze all layers of MobileNetV2
-        for param in self.mobilenetv2.parameters():
-            param.requires_grad = False
+        # Freeze all layers
+        # for param in self.alexNetv2.parameters():
+        #     param.requires_grad = False
 
         # Modify the classifier (fully connected) layer to match the desired output size
-        num_features = self.mobilenetv2.classifier[1].in_features
-        self.mobilenetv2.classifier = nn.Sequential(
+        num_features = self.alexNetv2.classifier[1].in_features
+        self.alexNetv2.classifier = nn.Sequential(
             nn.Linear(num_features, 128),  # You can adjust the size of the hidden layer
             nn.ReLU(),
             nn.Linear(128, action_size),  # 5 output units for 5 actions
         )
 
     def forward(self, state):
-        return self.mobilenetv2(state)[0]
-        
+        return self.alexNetv2(state)
 
 
 class QNetwork:
     def __init__(self, lr=0.001, load_model=False, model_path=None):
         if not load_model:
-            
             self.model = CNN(ACTION_SPACE)
             if not torch.backends.mps.is_available():
                 if not torch.backends.mps.is_built():
-                    print("MPS not available because the current PyTorch install was not "
-                        "built with MPS enabled.")
+                    print(
+                        "MPS not available because the current PyTorch install was not "
+                        "built with MPS enabled."
+                    )
                 else:
-                    print("MPS not available because the current MacOS version is not 12.3+ "
-                        "and/or you do not have an MPS-enabled device on this machine.")
+                    print(
+                        "MPS not available because the current MacOS version is not 12.3+ "
+                        "and/or you do not have an MPS-enabled device on this machine."
+                    )
             else:
-                mps_device = torch.device("mps")   
+                mps_device = torch.device("mps")
                 self.model.to(mps_device)
             self.model.optimizer = torch.optim.Adam(self.model.parameters(), lr=lr)
         else:
@@ -197,24 +198,6 @@ class DQN_Agent:
                 if episode_len >= MAX_EPISODE_LEN or terminal_state:
                     break
 
-    def getTrajectory(self):
-        done = False
-        trajectory = []
-        state = self.env.reset()
-        state = torch.tensor(state).reshape(1, 3, 224, 224)
-        
-        # state = torch.randn(1, 3, 224, 224)
-        while not done:
-            q_values = self.q_w.model(state)
-            action = self.greedy_policy(q_values)
-            next_state, reward, done = self.env.step(action.item())
-            next_state = torch.tensor(next_state).reshape(1, 3, 224, 224)
-            # next_state = torch.randn(1, 3, 224, 224)
-            trajectory.append((state, action, reward, next_state))
-            state = next_state
-        print(len(trajectory))
-        return trajectory
-
     def burn_in_memory(self):
         state = self.env.reset()
         for _ in range(self.replay_memory.burn_in):
@@ -230,57 +213,64 @@ class DQN_Agent:
         for _ in tqdm(range(1000)):
             state = torch.randn(1, 3, 224, 224)
             q_values = self.q_w.model(state)
-            action = self.greedy_policy(q_values)
-    
-    # def sendActions(self):
-
+            _ = self.greedy_policy(q_values)
 
 
 class EnvironmentCommunicator:
-    def __init__(self,):
-        print("connecting reciever")
-        self.reciever = ServerReciever()
-        print("connected reciever")
-        print("connecting sender")
-        self.sender = ServerSender()
-        print("connected sender")
+    def __init__(self, IP, PORT):
+        # Initialize websocket that communicates with car.
+        self.socket = socket.socket(socket.AF_INET, socket.SOCK_STREAM)
+        self.socket.connect((IP, PORT))
 
     def step(self, action):
         """
         returns (state, reward, done)
         """
-        self.sender.sendAction(action_map[action])
-        print(action_map[action])
-        state, reward = self.reciever.recieveImageReward()
-        return state, reward, reward == 0
-    
+        # Send the action to the car
+        self.socket.sendall(action_map[action].encode())
+
+        # The car should take the action, and then send back the new state and greyscale readings.
+        msg = self.socket.recv(STATE_BYTES + 3)
+
+        # Do some modification to get state into torch tensor, and greyscale to reward.
+        state = msg[:STATE_BYTES]
+        grey_scale = msg[STATE_BYTES:]
+
+        state = torch.tensor(state, shape=(3, 224, 224))
+
+        # each grayscale reading is 1 byte, there are 3 readings, turn to list
+        reward = any([r < THRESHOLD for r in grey_scale])
+        return state, 0 if reward else 1, reward
+
     def reset(self):
-        state, _ = self.reciever.recieveImageReward()
-        return state
+        # Tell the car to reset.
+        self.socket.sendall("reset".encode())
+        # Wait for the car to reset, and send back starting state.
+        state = self.socket.recv(STATE_BYTES)
+
+        return torch.tensor(state, shape=(3, 224, 224))
 
     def start(self):
+        # Tell the car to get ready to start receiving communications.
         self.socket.sendall("start".encode())
-        # wait for first state (should be a 3d array of size 224x224x3)
+
+        # Receive the initial state from car, now car waits for action.
         state = self.socket.recv(STATE_BYTES)
+
         # Do some modification to state to turn into torch tensor and send back
-        return state
+        return torch.tensor(state, shape=(3, 224, 224))
 
     def close_connection(self):
         self.socket.close()
 
 
 def main():
-        
     # Initialize environment
-    # env = EnvironmentCommunicator()
-
-    # Initialize agent
-    agent = DQN_Agent(E, EPSILON, LEARNING_RATE, GAMMA, BATCH_SIZE, None)
+    env = EnvironmentCommunicator(IP, PORT)
+    agent = DQN_Agent(E, EPSILON, LEARNING_RATE, GAMMA, BATCH_SIZE, env)
     agent.testNetwork()
-    # agent.getTrajectory()
 
-    # Train agent
-    # agent.train()
+    agent.train()
 
 
 if __name__ == "__main__":
