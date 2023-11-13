@@ -26,7 +26,7 @@ class ImageCapture:
         self.last_image = None
         self.camera = camera
         self.camera.resolution = resolution
-        self.capture_thread = threading.Thread(target=self.startCaptureProcess)
+        self.capture_thread = threading.Thread(target=self.capture_images)
         self.capture_thread.start()
 
     def capture_images(self):
