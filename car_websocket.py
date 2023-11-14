@@ -20,11 +20,12 @@ Some improvements to make:
 """
 
 RESOLUTION = (224, 224)
-FRAMERATE = 24
+FRAMERATE = 60
 THRESHOLD = 50
 MAX_MOVES = 3
 SPEED = 10
 MOVE_TIME = 0.25
+DEBUG = False
 action_map = {0: "left", 1: "right", 2: "forward", 3: "backward", 4: "stop"}
 
 
@@ -33,6 +34,7 @@ class ImageCapture:
         self.last_image = None
         self.camera = camera
         self.camera.resolution = resolution
+        self.camera.framerate = framerate
 
     def start_capture(self):
         self.capture_thread = threading.Thread(target=self.capture_images)
@@ -138,16 +140,18 @@ px = Picarx()
 camera = picamera.PiCamera()
 image_capture = ImageCapture(camera)
 car = Car(px)
+# move camera down
+px.set_camera_servo2_angle(-27)
 
 
 async def start(websocket, path):
-    print("Connected")
+    if DEBUG: print("Connected")
     image_capture.start_capture()
     car.start_reset_thread()
 
     async for message in websocket:
         message = message.decode("utf-8")
-        print(f"Received message: {message}")
+        if DEBUG: print(f"Received message: {message}")
         if str(message) == "start":
             # Send back the current image.
             image = image_capture.last_image
@@ -157,7 +161,7 @@ async def start(websocket, path):
             car.reset()
             image = image_capture.last_image
             await websocket.send(image)
-        else:
+        elif car.reset_flag != 1:
             # Execute the action on the car. Then send current state.
             car.move(message, speed=SPEED)
             res = image_capture.last_image
@@ -171,9 +175,10 @@ async def start(websocket, path):
                 res += data_byte
             # print(car.reset_flag)
             reset_flag_byte = car.reset_flag.to_bytes(1, "big")
-            res += reset_flag_byte
-            await websocket.send(res)
-
+            await websocket.send(res + reset_flag_byte)
+        else: 
+            reset_flag_byte = car.reset_flag.to_bytes(1, "big")
+            await websocket.send(res + reset_flag_byte)
 
 start_server = websockets.serve(start, "0.0.0.0", 8765)
 try:

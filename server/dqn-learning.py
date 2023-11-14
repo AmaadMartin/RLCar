@@ -8,12 +8,13 @@ import asyncio
 import torch.nn as nn
 from tqdm import tqdm
 import matplotlib.pyplot as plt
-from PIL import Image
+# from PIL import Image
 import io
 from time import time
-from torchvision.transforms import ToPILImage
+# from torchvision.transforms import ToPILImage
 import torchvision.transforms as transforms
 import random
+import cv2
 
 """
 TODOS: 
@@ -40,6 +41,7 @@ GAMMA = 0.9
 BATCH_SIZE = 32
 MAX_EPISODE_LEN = 300
 STATE_BYTES = 224 * 224 * 3
+DEBUG = False
 
 
 # Replay Memory Class
@@ -196,7 +198,7 @@ class DQN_Agent:
         self.loss_fn(y_f, y_i).backward()
         self.q_w.model.optimizer.step()
 
-        print("optimized")
+        if DEBUG: print("optimized")
 
     async def train(self):
         # Training the agent
@@ -206,7 +208,7 @@ class DQN_Agent:
         c = 0
         episode_len = 0
         for i in range(self.E):
-            print("episode", i)
+            if DEBUG: print("episode", i)
             state = await self.env.reset()
             while True:
                 q_values = self.q_w.model(
@@ -275,7 +277,7 @@ class DQN_Agent:
 
 
 class EnvironmentCommunicator:
-    def __init__(self, IP, PORT):
+    def __init__(self, IP, PORT, show_image=False):
         # Initialize websocket that communicates with car.
         # self.socket = socket.socket(socket.AF_INET, socket.SOCK_STREAM)
         # self.socket.connect((IP, PORT))
@@ -285,6 +287,7 @@ class EnvironmentCommunicator:
             mean=[0.485, 0.456, 0.406], std=[0.229, 0.224, 0.225]
         )
         self.websocket = None
+        self.show_image = show_image
 
     async def connect(self):
         self.websocket = await websockets.connect(f"ws://{self.IP}:{self.PORT}")
@@ -331,10 +334,18 @@ class EnvironmentCommunicator:
 
     def bytes_to_tensor(self, bytes):
         state_np = np.frombuffer(bytes, dtype=np.uint8).reshape(224, 224, 3)
+        if self.show_image:
+            self.showImage(state_np)
         state_tensor = self.normalize(
             torch.tensor(state_np).permute(2, 0, 1).float() / 255.0
         ).unsqueeze(0)
         return state_tensor
+    
+    def showImage(self, imageNumpyArray):
+        cv2.imshow('BGR Image', imageNumpyArray)
+        if cv2.waitKey(1) & 0xFF == ord('q'):
+            return True
+        return False
 
     async def start(self):
         # Tell the car to get ready to start receiving communications.
@@ -349,7 +360,7 @@ class EnvironmentCommunicator:
 
 async def main():
     # Initialize environment
-    env = EnvironmentCommunicator(IP, PORT)
+    env = EnvironmentCommunicator(IP, PORT, show_image=True)
     await env.connect()
     agent = DQN_Agent(E, EPSILON, LEARNING_RATE, GAMMA, BATCH_SIZE, env)
     # await agent.test_connection()
