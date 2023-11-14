@@ -44,7 +44,7 @@ STATE_BYTES = 224 * 224 * 3
 
 # Replay Memory Class
 class Replay_Memory:
-    def __init__(self, memory_size=50000, burn_in=500):
+    def __init__(self, memory_size=50000, burn_in=10):
         # The memory essentially stores transitions recorder from the agent
         # taking actions in the environment.
 
@@ -135,7 +135,7 @@ class QNetwork:
         else:
             self.load_model(model_path)
 
-    def save_model(self, path):
+    def save_model(self, path="model.pt"):
         torch.save(self.model, path)
 
     def load_model(self, path):
@@ -169,29 +169,34 @@ class DQN_Agent:
         return torch.argmax(q_values).item()
 
     def optimize_model(self):
+        # Need to fix this!
         batch = self.replay_memory.sample_batch(
             self.batch_size
         )  # returns a list of tuples of length batch_size
         y_i = np.zeros((self.batch_size, ACTION_SPACE))
         y_f = np.zeros((self.batch_size, ACTION_SPACE))
-
         # TODO: Could Parallelize this, not sure if doing this correctly
         for i, (state, action, reward, next_state, end) in enumerate(batch):
-            q_values = self.q_w(state)
-            q_values_next = self.q_target(next_state)
+            state = state.requires_grad_(True)
+            q_values = self.q_w.model(state)[0]
+
+            q_values_next = self.q_target.model(next_state)[0]
+
             if end:
                 y_i[i][action] = reward
             else:
                 y_i[i][action] = reward + self.gamma * torch.max(q_values_next)
 
-            y_f[i][action] = q_values[action]
+            y_f[i][action] = q_values[action].item()
 
         y_i = torch.tensor(y_i)
-        y_f = torch.tensor(y_f)
+        y_f = torch.tensor(y_f).requires_grad_(True)
 
         self.q_w.model.optimizer.zero_grad()
         self.loss_fn(y_f, y_i).backward()
         self.q_w.model.optimizer.step()
+
+        print("optimized")
 
     async def train(self):
         # Training the agent
@@ -204,7 +209,9 @@ class DQN_Agent:
             print("episode", i)
             state = await self.env.reset()
             while True:
-                q_values = self.q_w(state)  # returns a tensor of length ACTION_SPACE
+                q_values = self.q_w.model(
+                    state
+                )  # returns a tensor of length ACTION_SPACE
                 action = self.epsilon_greedy_policy(
                     q_values
                 )  # returns an int corresponding to action to take
@@ -345,8 +352,9 @@ async def main():
     env = EnvironmentCommunicator(IP, PORT)
     await env.connect()
     agent = DQN_Agent(E, EPSILON, LEARNING_RATE, GAMMA, BATCH_SIZE, env)
-    await agent.test_connection()
-    # await agent.train()
+    # await agent.test_connection()
+    await agent.train()
+    agent.q_w.save_model("model.pt")
     # agent.testNetwork()
 
     # agent.train()
