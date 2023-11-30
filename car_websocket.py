@@ -19,7 +19,8 @@ Some improvements to make:
     - ISSUE: changes at last second!!!
 """
 
-RESOLUTION = (224, 224)
+# RESOLUTION = (224, 224)
+RESOLUTION = (640, 480)
 FRAMERATE = 60
 THRESHOLD = 50
 MAX_MOVES = 3

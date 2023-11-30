@@ -40,7 +40,8 @@ LEARNING_RATE = 0.001
 GAMMA = 0.9
 BATCH_SIZE = 32
 MAX_EPISODE_LEN = 300
-STATE_BYTES = 224 * 224 * 3
+RESOLUTION = (640, 480)
+STATE_BYTES = RESOLUTION[0] * RESOLUTION[1] * 3
 DEBUG = False
 
 
@@ -97,20 +98,16 @@ class CNN(torch.nn.Module):
             nn.Linear(128, action_size),  # 5 output units for 5 actions
         )
 
-        # self.preprocess = transforms.Compose(
-        #     [
-        #         transforms.ToTensor(),
-        #         transforms.Normalize(
-        #             mean=[0.485, 0.456, 0.406], std=[0.229, 0.224, 0.225]
-        #         ),
-        #     ]
-        # )
+        self.preprocess = transforms.Compose([
+            transforms.Resize((224, 224)),  # Resize the spatial dimensions to 224x224
+            transforms.Normalize(mean=[0.485, 0.456, 0.406], std=[0.229, 0.224, 0.225])  # Normalize
+        ])
 
     def forward(self, state):
         if self.device is not None:
             state = state.to(self.device)
 
-        return self.alexNetv2(state)
+        return self.alexNetv2(self.preprocess(state))
 
 
 class QNetwork:
@@ -333,12 +330,21 @@ class EnvironmentCommunicator:
         return state
 
     def bytes_to_tensor(self, bytes):
-        state_np = np.frombuffer(bytes, dtype=np.uint8).reshape(224, 224, 3)
+        state_np = np.frombuffer(bytes, dtype=np.uint8).reshape(RESOLUTION[0], RESOLUTION[1], 3)
+
         if self.show_image:
             self.showImage(state_np)
-        state_tensor = self.normalize(
-            torch.tensor(state_np).permute(2, 0, 1).float() / 255.0
-        ).unsqueeze(0)
+        
+        padding = RESOLUTION[1] - RESOLUTION[0] // 2
+
+        state_np = np.pad(state_np, ((0, 0), (padding, padding), (0, 0)), "constant", constant_values=0)
+
+        # state_tensor = self.normalize(
+        #     torch.tensor(state_np).permute(2, 0, 1).float() / 255.0
+        # ).unsqueeze(0)
+
+        state_tensor = torch.tensor(state_np).permute(2, 0, 1).float() / 255.0
+
         return state_tensor
     
     def showImage(self, imageNumpyArray):
